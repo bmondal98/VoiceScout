@@ -27,6 +27,7 @@ export interface VideoOption {
   badge: string;
   chapters: VideoChapter[];
   sampleQuestions: string[];
+  isCustom?: boolean;
 }
 
 export interface AskResponse {

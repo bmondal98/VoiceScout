@@ -3,7 +3,8 @@ import YouTube from 'react-youtube';
 import type { YouTubeProps, YouTubePlayer } from 'react-youtube';
 import type { VideoOption, VideoChapter } from '../types';
 import { SAMPLE_VIDEOS } from '../data/sampleVideos';
-import { Play, Pause, RotateCcw, FastForward, Film, Clock, User, Bookmark } from 'lucide-react';
+import { extractYouTubeId } from '../utils/youtube';
+import { Play, Pause, RotateCcw, FastForward, Film, Clock, User, Bookmark, Link2, ArrowLeft, AlertCircle } from 'lucide-react';
 
 interface VideoPlayerStageProps {
   activeVideo: VideoOption;
@@ -22,6 +23,8 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showJumpToast, setShowJumpToast] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState('');
+  const [customUrlError, setCustomUrlError] = useState<string | null>(null);
   const timeIntervalRef = useRef<number | null>(null);
 
   // Trigger brief visual highlight when a voice jump happens
@@ -94,6 +97,37 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
     }
   };
 
+  const handleCustomUrlSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const videoId = extractYouTubeId(customUrlInput);
+    if (!videoId) {
+      setCustomUrlError('Could not recognize that as a valid YouTube URL.');
+      return;
+    }
+
+    setCustomUrlError(null);
+    setCustomUrlInput('');
+    onSelectVideo({
+      id: `custom_${videoId}`,
+      youtubeId: videoId,
+      title: 'Custom Video (pasted)',
+      originalLanguage: 'Unknown',
+      instructor: 'Unknown',
+      duration: '--:--',
+      description: 'A custom video pasted by the user. Playback only — no indexed transcript is available.',
+      badge: 'Custom',
+      chapters: [],
+      sampleQuestions: [],
+      isCustom: true,
+    });
+  };
+
+  const handleBackToDemoVideos = () => {
+    setCustomUrlError(null);
+    setCustomUrlInput('');
+    onSelectVideo(SAMPLE_VIDEOS[0]);
+  };
+
   const formatSeconds = (sec: number): string => {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
@@ -119,7 +153,7 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
           <Film className="w-4 h-4 text-violet-400" />
           <span>Active Source Video:</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {SAMPLE_VIDEOS.map((video) => {
             const isSelected = video.id === activeVideo.id;
             return (
@@ -139,7 +173,55 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
               </button>
             );
           })}
+
+          {activeVideo.isCustom && (
+            <button
+              onClick={handleBackToDemoVideos}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700/60 transition-all"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to demo videos</span>
+            </button>
+          )}
         </div>
+      </div>
+
+      {/* 1b. Paste a Custom YouTube URL */}
+      <div className="p-3 rounded-2xl bg-slate-900/70 border border-slate-800/70 shadow-sm">
+        <form onSubmit={handleCustomUrlSubmit} className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 px-2 text-xs font-semibold text-slate-400 shrink-0">
+            <Link2 className="w-4 h-4 text-violet-400" />
+            <span>Paste YouTube URL:</span>
+          </div>
+          <input
+            type="text"
+            value={customUrlInput}
+            onChange={(e) => {
+              setCustomUrlInput(e.target.value);
+              if (customUrlError) setCustomUrlError(null);
+            }}
+            placeholder="https://www.youtube.com/watch?v=..."
+            className="flex-1 min-w-[200px] bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 font-medium"
+          />
+          <button
+            type="submit"
+            disabled={!customUrlInput.trim()}
+            className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-violet-600/30 transition-all cursor-pointer"
+          >
+            Load Video
+          </button>
+        </form>
+        {customUrlError && (
+          <div className="flex items-center gap-1.5 mt-2 px-1 text-[11px] text-rose-300">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+            <span>{customUrlError}</span>
+          </div>
+        )}
+        {activeVideo.isCustom && !customUrlError && (
+          <p className="mt-2 px-1 text-[11px] text-slate-500">
+            Playing a pasted video — playback only, no transcript indexing or voice Q&amp;A.
+          </p>
+        )}
       </div>
 
       {/* 2. Synchronized YouTube Player Stage */}

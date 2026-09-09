@@ -98,6 +98,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
   // 1. PUSH-TO-TALK: Start Listening (Mouse Down / Touch Start)
   const handleMicPressStart = async (e: React.SyntheticEvent) => {
     e.preventDefault();
+    if (activeVideo.isCustom) return;
     if (fsmState === 'THINKING' || fsmState === 'SPEAKING') {
       stopCurrentAudio();
     }
@@ -327,20 +328,27 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
               onMouseUp={handleMicPressEnd}
               onTouchStart={handleMicPressStart}
               onTouchEnd={handleMicPressEnd}
-              disabled={fsmState === 'THINKING'}
-              className={`relative z-10 w-24 h-24 rounded-full flex flex-col items-center justify-center transition-all duration-200 shadow-2xl select-none cursor-pointer focus:outline-none ${
-                fsmState === 'LISTENING'
-                  ? 'bg-gradient-to-tr from-rose-600 to-red-500 text-white scale-110 shadow-rose-600/50 ring-4 ring-rose-400'
+              disabled={fsmState === 'THINKING' || activeVideo.isCustom}
+              className={`relative z-10 w-24 h-24 rounded-full flex flex-col items-center justify-center transition-all duration-200 shadow-2xl select-none focus:outline-none ${
+                activeVideo.isCustom
+                  ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-60'
+                  : fsmState === 'LISTENING'
+                  ? 'bg-gradient-to-tr from-rose-600 to-red-500 text-white scale-110 shadow-rose-600/50 ring-4 ring-rose-400 cursor-pointer'
                   : fsmState === 'THINKING'
                   ? 'bg-slate-800 text-amber-300 border border-amber-500/40 cursor-wait'
                   : fsmState === 'SPEAKING'
-                  ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-emerald-600/40 ring-2 ring-emerald-400'
-                  : 'bg-gradient-to-tr from-violet-600 via-indigo-600 to-indigo-700 hover:from-violet-500 hover:to-indigo-500 text-white shadow-indigo-700/40 hover:scale-105 active:scale-95 ring-2 ring-violet-400/30'
+                  ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-emerald-600/40 ring-2 ring-emerald-400 cursor-pointer'
+                  : 'bg-gradient-to-tr from-violet-600 via-indigo-600 to-indigo-700 hover:from-violet-500 hover:to-indigo-500 text-white shadow-indigo-700/40 hover:scale-105 active:scale-95 ring-2 ring-violet-400/30 cursor-pointer'
               }`}
-              title="Hold to talk in your native language"
+              title={activeVideo.isCustom ? 'Voice Q&A unavailable for pasted videos' : 'Hold to talk in your native language'}
               aria-label="Push to talk microphone button"
             >
-              {fsmState === 'LISTENING' ? (
+              {activeVideo.isCustom ? (
+                <div className="flex flex-col items-center px-2 text-center">
+                  <Mic className="w-8 h-8 text-slate-500 mb-0.5" />
+                  <span className="text-[9px] font-extrabold uppercase tracking-wider">Unavailable</span>
+                </div>
+              ) : fsmState === 'LISTENING' ? (
                 <div className="flex flex-col items-center">
                   <Mic className="w-8 h-8 animate-bounce text-white mb-0.5" />
                   <span className="text-[10px] font-black uppercase tracking-wider">RELEASE</span>
@@ -366,7 +374,11 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
 
           {/* Sound Wave Equalizer Bars during recording or speaking */}
           <div className="h-6 flex items-center justify-center gap-1 mt-4">
-            {fsmState === 'LISTENING' ? (
+            {activeVideo.isCustom ? (
+              <p className="text-xs font-medium text-slate-400 text-center">
+                Voice Q&amp;A isn't available for pasted videos — there's no indexed transcript to search.
+              </p>
+            ) : fsmState === 'LISTENING' ? (
               <>
                 <div className="w-1 bg-rose-400 rounded-full animate-bar-1" />
                 <div className="w-1 bg-rose-500 rounded-full animate-bar-2" />
