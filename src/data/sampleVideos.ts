@@ -1,4 +1,4 @@
-import type { LanguageOption, VideoOption, AskResponse, TargetLanguage } from '../types';
+import type { LanguageOption, VideoOption, AskResponse, TargetLanguage, ProcessingLanguageOption } from '../types';
 
 export const SUPPORTED_LANGUAGES: LanguageOption[] = [
   {
@@ -29,6 +29,14 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
     flag: '🌐',
     speechCode: 'en-US',
   },
+];
+
+// Language choices offered when submitting a pasted YouTube URL for backend processing
+export const PROCESSING_LANGUAGES: ProcessingLanguageOption[] = [
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'French' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'fil', label: 'Filipino' },
 ];
 
 export const SAMPLE_VIDEOS: VideoOption[] = [

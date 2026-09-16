@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import YouTube from 'react-youtube';
 import type { YouTubeProps, YouTubePlayer } from 'react-youtube';
-import type { VideoOption, VideoChapter } from '../types';
-import { SAMPLE_VIDEOS } from '../data/sampleVideos';
+import type { ProcessingLanguageCode, VideoOption, VideoChapter } from '../types';
+import { SAMPLE_VIDEOS, PROCESSING_LANGUAGES } from '../data/sampleVideos';
 import { extractYouTubeId } from '../utils/youtube';
-import { Play, Pause, RotateCcw, FastForward, Film, Clock, User, Bookmark, Link2, ArrowLeft, AlertCircle } from 'lucide-react';
+import { fetchCatalogVideos, submitVideoForProcessing } from '../services/videoService';
+import { Play, Pause, RotateCcw, FastForward, Film, Clock, User, Bookmark, Link2, ArrowLeft, AlertCircle, Loader2, Languages, Send } from 'lucide-react';
 
 interface VideoPlayerStageProps {
   activeVideo: VideoOption;
@@ -26,6 +27,43 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
   const [customUrlInput, setCustomUrlInput] = useState('');
   const [customUrlError, setCustomUrlError] = useState<string | null>(null);
   const timeIntervalRef = useRef<number | null>(null);
+
+  // Real video catalog (fetched fresh on mount — video_url is a short-lived presigned link)
+  const [catalogVideos, setCatalogVideos] = useState<VideoOption[]>([]);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  // Paste-YouTube-URL -> submit for backend processing (placeholder pipeline)
+  const [processingLanguage, setProcessingLanguage] = useState<ProcessingLanguageCode | ''>('');
+  const [processingState, setProcessingState] = useState<'idle' | 'pending' | 'error'>('idle');
+  const [processingMessage, setProcessingMessage] = useState<string | null>(null);
+
+  // Load the real video catalog once on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    setIsCatalogLoading(true);
+    fetchCatalogVideos()
+      .then((videos) => {
+        if (!cancelled) {
+          setCatalogVideos(videos);
+          setCatalogError(null);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load video catalog:', err);
+        if (!cancelled) {
+          setCatalogError('Could not load catalog videos.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsCatalogLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Trigger brief visual highlight when a voice jump happens
   useEffect(() => {
@@ -122,6 +160,29 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
     });
   };
 
+  const handleSubmitForProcessing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const videoId = extractYouTubeId(customUrlInput);
+    if (!videoId) {
+      setCustomUrlError('Could not recognize that as a valid YouTube URL.');
+      return;
+    }
+    if (!processingLanguage) return;
+
+    setProcessingState('pending');
+    setProcessingMessage(null);
+
+    try {
+      const result = await submitVideoForProcessing(customUrlInput.trim(), processingLanguage);
+      setProcessingMessage(result.message);
+      setProcessingState(result.status === 'pending' ? 'pending' : 'idle');
+    } catch (err) {
+      console.warn('submitVideoForProcessing failed:', err);
+      setProcessingState('error');
+      setProcessingMessage('Could not submit video for processing. Please try again.');
+    }
+  };
+
   const handleBackToDemoVideos = () => {
     setCustomUrlError(null);
     setCustomUrlInput('');
@@ -154,6 +215,41 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
           <span>Active Source Video:</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Real catalog videos, shown first */}
+          {catalogVideos.map((video) => {
+            const isSelected = video.id === activeVideo.id;
+            return (
+              <button
+                key={video.id}
+                onClick={() => onSelectVideo(video)}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-1 ring-violet-400/40 scale-[1.02]'
+                    : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700/60'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-cyan-300 animate-ping' : 'bg-emerald-500'}`} />
+                <span>{video.badge}:</span>
+                <span className="truncate max-w-[140px] sm:max-w-none">{video.title}</span>
+                <span className="text-[10px] opacity-75 font-normal uppercase">({video.originalLanguage})</span>
+              </button>
+            );
+          })}
+
+          {isCatalogLoading && (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-800/50 text-slate-400 border border-slate-700/40">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Loading catalog videos…
+            </span>
+          )}
+
+          {catalogError && !isCatalogLoading && (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20">
+              <AlertCircle className="w-3.5 h-3.5" />
+              {catalogError}
+            </span>
+          )}
+
           {SAMPLE_VIDEOS.map((video) => {
             const isSelected = video.id === activeVideo.id;
             return (
@@ -199,6 +295,10 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
             onChange={(e) => {
               setCustomUrlInput(e.target.value);
               if (customUrlError) setCustomUrlError(null);
+              if (processingState !== 'idle') {
+                setProcessingState('idle');
+                setProcessingMessage(null);
+              }
             }}
             placeholder="https://www.youtube.com/watch?v=..."
             className="flex-1 min-w-[200px] bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 font-medium"
@@ -222,6 +322,64 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
             Playing a pasted video — playback only, no transcript indexing or voice Q&amp;A.
           </p>
         )}
+
+        {/* 1c. Submit the pasted URL to the backend processing pipeline */}
+        {customUrlInput.trim() && (
+          <form
+            onSubmit={handleSubmitForProcessing}
+            className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800/70"
+          >
+            <div className="flex items-center gap-2 px-2 text-xs font-semibold text-slate-400 shrink-0">
+              <Languages className="w-4 h-4 text-violet-400" />
+              <span>Video language:</span>
+            </div>
+            <select
+              value={processingLanguage}
+              onChange={(e) => setProcessingLanguage(e.target.value as ProcessingLanguageCode)}
+              className="bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 font-medium cursor-pointer"
+              aria-label="Select video language for processing"
+            >
+              <option value="" disabled>
+                Select language…
+              </option>
+              {PROCESSING_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code} className="bg-slate-900 text-white">
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              disabled={!processingLanguage || processingState === 'pending'}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-indigo-600/30 transition-all cursor-pointer"
+            >
+              {processingState === 'pending' ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Processing…</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Submit for Transcription</span>
+                </>
+              )}
+            </button>
+          </form>
+        )}
+
+        {processingState === 'pending' && processingMessage && (
+          <div className="flex items-center gap-1.5 mt-2 px-1 text-[11px] text-amber-300">
+            <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
+            <span>{processingMessage} — this video will appear in the catalog once ready.</span>
+          </div>
+        )}
+        {processingState === 'error' && processingMessage && (
+          <div className="flex items-center gap-1.5 mt-2 px-1 text-[11px] text-rose-300">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+            <span>{processingMessage}</span>
+          </div>
+        )}
       </div>
 
       {/* 2. Synchronized YouTube Player Stage */}
@@ -230,14 +388,23 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
 
         {/* 16:9 Aspect Ratio Frame */}
         <div className="relative aspect-video w-full bg-slate-950 overflow-hidden">
-          <YouTube
-            videoId={activeVideo.youtubeId}
-            opts={youtubeOptions}
-            onReady={onPlayerReady}
-            onStateChange={onPlayerStateChange}
-            className="w-full h-full"
-            iframeClassName="w-full h-full absolute inset-0 border-0"
-          />
+          {activeVideo.videoUrl ? (
+            <video
+              key={activeVideo.id}
+              src={activeVideo.videoUrl}
+              controls
+              className="w-full h-full absolute inset-0 border-0 bg-black"
+            />
+          ) : (
+            <YouTube
+              videoId={activeVideo.youtubeId}
+              opts={youtubeOptions}
+              onReady={onPlayerReady}
+              onStateChange={onPlayerStateChange}
+              className="w-full h-full"
+              iframeClassName="w-full h-full absolute inset-0 border-0"
+            />
+          )}
 
           {/* Jump to Timestamp Toast Notification */}
           {showJumpToast && lastJumpSeconds !== null && (
@@ -250,30 +417,34 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
 
         {/* Custom Quick Player Sub-bar */}
         <div className="relative z-10 px-4 py-3 bg-slate-900/95 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleTogglePlay}
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium shadow-md shadow-violet-600/30 transition-transform active:scale-95 cursor-pointer"
-              title={isPlaying ? 'Pause Video' : 'Play Video'}
-            >
-              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
-            </button>
+          {activeVideo.videoUrl ? (
+            <p className="text-[11px] text-slate-500">Use the player controls above to play, pause and seek.</p>
+          ) : (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleTogglePlay}
+                className="flex items-center justify-center w-8 h-8 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium shadow-md shadow-violet-600/30 transition-transform active:scale-95 cursor-pointer"
+                title={isPlaying ? 'Pause Video' : 'Play Video'}
+              >
+                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
+              </button>
 
-            <button
-              onClick={() => handleSeek(Math.max(0, currentTime - 10))}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
-              title="Rewind 10 seconds"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
+              <button
+                onClick={() => handleSeek(Math.max(0, currentTime - 10))}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                title="Rewind 10 seconds"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
 
-            <div className="flex items-center gap-1.5 text-slate-300 font-mono font-medium">
-              <Clock className="w-3.5 h-3.5 text-violet-400" />
-              <span>{formatSeconds(currentTime)}</span>
-              <span className="text-slate-500">/</span>
-              <span className="text-slate-500">{formatSeconds(duration || 600)}</span>
+              <div className="flex items-center gap-1.5 text-slate-300 font-mono font-medium">
+                <Clock className="w-3.5 h-3.5 text-violet-400" />
+                <span>{formatSeconds(currentTime)}</span>
+                <span className="text-slate-500">/</span>
+                <span className="text-slate-500">{formatSeconds(duration || 600)}</span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Video Metadata Snippet */}
           <div className="flex items-center gap-3 text-slate-400">

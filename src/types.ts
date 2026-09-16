@@ -18,7 +18,7 @@ export interface VideoChapter {
 
 export interface VideoOption {
   id: string; // e.g. "vid_py_01"
-  youtubeId: string; // e.g. "kqtD5dpn9C8"
+  youtubeId?: string; // e.g. "kqtD5dpn9C8" — omitted for catalog videos, which play via videoUrl instead
   title: string;
   originalLanguage: string;
   instructor: string;
@@ -28,6 +28,29 @@ export interface VideoOption {
   chapters: VideoChapter[];
   sampleQuestions: string[];
   isCustom?: boolean;
+  /** Presigned S3 playback URL for catalog videos. Short-lived (~1hr) — fetch fresh, don't persist. */
+  videoUrl?: string;
+  isCatalog?: boolean;
+}
+
+/** Raw shape returned by GET /get-video (the video catalog API). */
+export interface CatalogVideo {
+  video_id: string;
+  title: string;
+  source_language: string;
+  video_url: string;
+}
+
+export type ProcessingLanguageCode = 'en' | 'fr' | 'hi' | 'fil';
+
+export interface ProcessingLanguageOption {
+  code: ProcessingLanguageCode;
+  label: string;
+}
+
+export interface VideoProcessingResult {
+  status: string;
+  message: string;
 }
 
 export interface AskResponse {
