@@ -50,7 +50,7 @@ function mapCatalogVideoToOption(video: CatalogVideo): VideoOption {
  * TODO: replace with real pipeline trigger endpoint once backend provides it.
  */
 export async function submitVideoForProcessing(
-  youtubeUrl: string,
+  _youtubeUrl: string,
   languageCode: ProcessingLanguageCode
 ): Promise<VideoProcessingResult> {
   const videoId = uuidv4();
@@ -61,8 +61,7 @@ export async function submitVideoForProcessing(
     video_id: videoId,
     filename,
     title,
-    youtubeUrl,
-    languageCode,
+    source_language: languageCode,
   });
 
   return {
