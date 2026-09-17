@@ -1,6 +1,8 @@
+import { v4 as uuidv4 } from 'uuid';
 import type { CatalogVideo, ProcessingLanguageCode, VideoOption, VideoProcessingResult } from '../types';
 
-const CATALOG_URL = 'https://96rp00aby2.execute-api.us-east-1.amazonaws.com/default/get-video';
+const CATALOG_URL = 'https://1cui283870.execute-api.us-east-1.amazonaws.com/dev/api/get-video';
+export const ADD_VIDEO_URL = 'https://1cui283870.execute-api.us-east-1.amazonaws.com/dev/api/add-video';
 
 export class VideoServiceError extends Error {
   constructor(message: string) {
@@ -51,7 +53,17 @@ export async function submitVideoForProcessing(
   youtubeUrl: string,
   languageCode: ProcessingLanguageCode
 ): Promise<VideoProcessingResult> {
-  console.log('submitVideoForProcessing payload:', { youtubeUrl, languageCode });
+  const videoId = uuidv4();
+  const filename = `${videoId}.mp4`;
+  const title = videoId;
+
+  console.log('submitVideoForProcessing payload:', {
+    video_id: videoId,
+    filename,
+    title,
+    youtubeUrl,
+    languageCode,
+  });
 
   return {
     status: 'pending',
