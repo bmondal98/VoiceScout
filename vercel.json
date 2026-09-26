@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/vidkraken-api/:path*",
+      "destination": "https://vidkraken.com/api/v2/:path*"
+    }
+  ]
+}

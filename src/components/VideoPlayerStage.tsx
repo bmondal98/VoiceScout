@@ -7,7 +7,7 @@ import {
   PROCESSING_LANGUAGES
 } from '../data/sampleVideos';
 import { extractYouTubeId } from '../utils/youtube';
-import { fetchCatalogVideos, generateVideoUploadUrl, uploadVideoToS3, addVideoToCatalog } from '../services/videoService';
+import { fetchCatalogVideos,generateVideoUploadUrl, uploadVideoToS3, addVideoToCatalog } from '../services/videoService';
 import { processUrlWithVidKraken } from '../services/vidKrakenService';
 import { wsService } from '../services/websocketService';
 import { Play, Pause, RotateCcw, FastForward, Film, Clock, User, Link2, ArrowLeft, AlertCircle, Loader2, Languages, Upload, CheckCircle2, X, Terminal } from 'lucide-react';

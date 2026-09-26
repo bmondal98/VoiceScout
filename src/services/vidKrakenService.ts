@@ -17,9 +17,7 @@ interface VidKrakenStatusResponse {
   error?: string;
 }
 
-const VIDKRAKEN_API_BASE = import.meta.env.DEV
-  ? '/vidkraken-api'
-  : 'https://vidkraken.com/api/v2';
+const VIDKRAKEN_API_BASE = '/vidkraken-api';
 
 const getVidKrakenApiKey = (): string => {
   const apiKey = import.meta.env.VITE_VIDKRAKEN_API_KEY;

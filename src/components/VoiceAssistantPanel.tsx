@@ -1017,20 +1017,15 @@ function checkLanguageMismatch(
       detectedLangCode = 'bn';
       detectedLangLabel = 'Bengali';
     } else if (hasLatin) {
-      // Script alone can't tell English from French, so trust a Latin-script selection.
-      if (selectedLanguage === 'hi') {
-        detectedLangCode = 'en';
-        detectedLangLabel = 'English';
-      } else {
-        detectedLangCode = selectedLanguage;
-      }
+      detectedLangCode = 'en';
+      detectedLangLabel = 'English';
     }
   }
 
   if (selectedLanguage === 'hi' && detectedLangCode !== 'hi' && hasLatin && !hasDevanagari) {
     return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
   }
-  if (selectedLanguage !== 'hi' && (hasDevanagari || hasBengali)) {
+  if (selectedLanguage === 'en' && (hasDevanagari || hasBengali)) {
     return { isMismatch: true, detectedLangLabel: hasDevanagari ? 'Hindi/Marathi' : 'Bengali' };
   }
 
