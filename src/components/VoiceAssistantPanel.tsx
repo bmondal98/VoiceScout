@@ -44,6 +44,7 @@ interface VoiceAssistantPanelProps {
 const LANGUAGE_OPTIONS = [
   { title: 'English', value: 'en' },
   { title: 'Hindi', value: 'hi' },
+  { title: 'French', value: 'fr' },
 ];
 
 export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
@@ -229,6 +230,13 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
     e.preventDefault();
     if (activeVideo.isCustom) return;
 
+    // If audio is currently playing aloud (SPEAKING state), clicking speaker button stops audio without clearing response
+    if (fsmState === 'SPEAKING' || isAudioPlaying) {
+      stopCurrentAudio();
+      setFsmState('IDLE');
+      return;
+    }
+
     resetPreviousQueryState();
 
     // Step 1: Automatically pause the YouTube video
@@ -364,6 +372,14 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
       stopCurrentAudio();
       setFsmState('IDLE');
     } else if (textToPlay) {
+      // Pause YouTube video so it doesn't play audio over the voice tutor
+      if (playerRef.current && typeof playerRef.current.pauseVideo === 'function') {
+        try {
+          playerRef.current.pauseVideo();
+        } catch (err) {
+          console.warn('Could not pause YouTube player on Play Aloud:', err);
+        }
+      }
       setFsmState('SPEAKING');
       playSpokenAnswer(textToPlay, audioUrl);
     }
@@ -686,7 +702,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
         )}
 
         {/* 3. EXPLANATION CARD (When in SPEAKING or IDLE with previous result) */}
-        {explanation && fsmState !== 'THINKING' && (
+        {(explanation || wsFinalAnswer || wsContexts.length > 0) && fsmState !== 'THINKING' && (
           <div className="p-4 rounded-2xl bg-slate-950/90 border border-violet-500/30 shadow-xl flex flex-col gap-3.5 relative group min-h-[200px] max-h-[480px] overflow-y-auto custom-scrollbar">
             {/* Query Header Pill */}
             <div className="flex items-start justify-between gap-2">
@@ -695,7 +711,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
                   Transcribed Query:
                 </span>
                 <p className="text-xs font-semibold text-slate-200 mt-0.5">
-                  "{explanation.transcribed_query}"
+                  "{explanation?.transcribed_query || 'Voice Query'}"
                 </p>
               </div>
 
@@ -762,8 +778,8 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
               const displayText = !needsTruncation
                 ? fullText
                 : isExplanationExpanded
-                ? fullText
-                : fullText.slice(0, 30);
+                  ? fullText
+                  : fullText.slice(0, 30);
 
               return (
                 <div className="p-3.5 rounded-xl bg-gradient-to-r from-violet-950/40 via-indigo-950/40 to-slate-900 border border-violet-500/20 text-xs flex flex-col gap-2 shrink-0">
@@ -928,7 +944,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
               </form>
 
               {/* Sample Quick Questions */}
-              <div className="flex flex-col gap-1.5">
+              {/* <div className="flex flex-col gap-1.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   Quick Stage Test Prompts:
                 </span>
@@ -946,7 +962,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
                     </button>
                   ))}
                 </div>
-              </div>
+              </div> */}
             </div>
           )}
         </div>

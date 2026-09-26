@@ -9,6 +9,7 @@ class WebSocketService {
   private socket: WebSocket | null = null;
   private listeners: Set<MessageCallback> = new Set();
   private isConnecting: boolean = false;
+  private pendingQueue: string[] = [];
 
   private getWebSocketUrl(): string {
     const url =
@@ -19,16 +20,20 @@ class WebSocketService {
   }
 
   /**
-   * Connects to WebSocket server. Closes any existing session first to ensure a clean new session.
+   * Connects to WebSocket server. Reuses existing session if already connected or connecting.
    */
   public getIsConnecting(): boolean {
     return this.isConnecting;
   }
 
-  public connectWebSocket(): void {
+  public connectWebSocket(forceReconnect: boolean = false): void {
     const wsUrl = this.getWebSocketUrl();
 
-    // If an existing socket is open or connecting, close it first
+    if (!forceReconnect && this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      console.log('WebSocket session already active or connecting.');
+      return;
+    }
+
     if (this.socket) {
       this.closeWebSocket();
     }
@@ -41,6 +46,7 @@ class WebSocketService {
       this.socket.onopen = () => {
         console.log('WebSocket connection opened successfully.');
         this.isConnecting = false;
+        this.flushPendingQueue();
       };
 
       this.socket.onmessage = (event) => {
@@ -70,6 +76,21 @@ class WebSocketService {
     }
   }
 
+  private flushPendingQueue(): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    while (this.pendingQueue.length > 0) {
+      const message = this.pendingQueue.shift();
+      if (message) {
+        console.log('Flushing queued WebSocket message:', message);
+        try {
+          this.socket.send(message);
+        } catch (err) {
+          console.error('Error sending queued WebSocket message:', err);
+        }
+      }
+    }
+  }
+
   /**
    * Closes the active WebSocket session and clears connection.
    */
@@ -86,30 +107,25 @@ class WebSocketService {
 
   /**
    * Sends a JSON payload over the active WebSocket connection.
+   * If socket is not open, queues payload and initiates connection.
    */
   public sendWebSocketMessage(payload: object): boolean {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket is not open. ReadyState:', this.socket?.readyState);
-      // If connecting, wait briefly and try sending
-      if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
-        setTimeout(() => {
-          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify(payload));
-          }
-        }, 1000);
-        return true;
-      }
-      return false;
-    }
+    const messageString = JSON.stringify(payload);
 
-    try {
-      const messageString = JSON.stringify(payload);
-      console.log('Sending WebSocket message:', messageString);
-      this.socket.send(messageString);
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      try {
+        console.log('Sending WebSocket message immediately:', messageString);
+        this.socket.send(messageString);
+        return true;
+      } catch (err) {
+        console.error('Error sending WebSocket message:', err);
+        return false;
+      }
+    } else {
+      console.log('WebSocket not OPEN (readyState:', this.socket?.readyState, '). Queueing message:', messageString);
+      this.pendingQueue.push(messageString);
+      this.connectWebSocket();
       return true;
-    } catch (err) {
-      console.error('Error sending WebSocket message:', err);
-      return false;
     }
   }
 
@@ -129,3 +145,4 @@ class WebSocketService {
 }
 
 export const wsService = new WebSocketService();
+

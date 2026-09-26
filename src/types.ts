@@ -1,6 +1,8 @@
 export type InteractionState = 'IDLE' | 'LISTENING' | 'THINKING' | 'SPEAKING' | 'ERROR';
 
-export type TargetLanguage = 'hi' | 'mr' | 'bn' | 'en';
+export type TargetLanguage = 'en' | 'hi' | 'fr';
+
+export type ProcessingLanguageCode = 'en' | 'hi' | 'fr';
 
 export interface LanguageOption {
   code: TargetLanguage;
@@ -32,6 +34,7 @@ export interface VideoOption {
   videoUrl?: string;
   isCatalog?: boolean;
   video_filename?: string;
+  youtube_url?: string;
 }
 
 /** Raw shape returned by GET /get-video (the video catalog API). */
@@ -41,9 +44,9 @@ export interface CatalogVideo {
   source_language: string;
   video_url: string;
   video_filename: string;
+  youtube_url?: string;
 }
 
-export type ProcessingLanguageCode = 'en' | 'fr' | 'hi' | 'fil';
 
 export interface ProcessingLanguageOption {
   code: ProcessingLanguageCode;

@@ -2,6 +2,13 @@ import type { LanguageOption, ProcessingLanguageOption /*, VideoOption, AskRespo
 
 export const SUPPORTED_LANGUAGES: LanguageOption[] = [
   {
+    code: 'en',
+    label: 'English',
+    nativeLabel: 'English',
+    flag: '🌐',
+    speechCode: 'en-US',
+  },
+  {
     code: 'hi',
     label: 'Hindi',
     nativeLabel: 'हिन्दी',
@@ -9,34 +16,18 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
     speechCode: 'hi-IN',
   },
   {
-    code: 'mr',
-    label: 'Marathi',
-    nativeLabel: 'मराठी',
-    flag: '🚩',
-    speechCode: 'mr-IN',
-  },
-  {
-    code: 'bn',
-    label: 'Bengali',
-    nativeLabel: 'বাংলা',
-    flag: '🇧🇩',
-    speechCode: 'bn-IN',
-  },
-  {
-    code: 'en',
-    label: 'English',
-    nativeLabel: 'English',
-    flag: '🌐',
-    speechCode: 'en-US',
+    code: 'fr',
+    label: 'French',
+    nativeLabel: 'Français',
+    flag: '🇫🇷',
+    speechCode: 'fr-FR',
   },
 ];
 
-// Language choices offered when submitting a pasted YouTube URL for backend processing
 export const PROCESSING_LANGUAGES: ProcessingLanguageOption[] = [
   { code: 'en', label: 'English' },
-  { code: 'fr', label: 'French' },
   { code: 'hi', label: 'Hindi' },
-  { code: 'fil', label: 'Filipino' },
+  { code: 'fr', label: 'French' },
 ];
 
 // export const SAMPLE_VIDEOS: VideoOption[] = [

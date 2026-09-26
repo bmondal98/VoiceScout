@@ -43,14 +43,22 @@ export async function fetchCatalogVideos(): Promise<VideoOption[]> {
   }
 }
 
+import { extractYouTubeId } from '../utils/youtube';
+
 function mapCatalogVideoToOption(video: CatalogVideo): VideoOption {
+  const ytUrlCandidate = video.youtube_url || video.video_url;
+  const extractedYtId = ytUrlCandidate ? extractYouTubeId(ytUrlCandidate) : null;
+  const isYouTube = Boolean(extractedYtId);
+
   return {
     id: video.video_id,
     title: video.title,
     originalLanguage: video.source_language,
     badge: 'Catalog',
     video_filename: video.video_filename,
-    videoUrl: video.video_url,
+    videoUrl: isYouTube ? undefined : video.video_url,
+    youtubeId: extractedYtId || undefined,
+    youtube_url: video.youtube_url || (isYouTube ? video.video_url : undefined),
     isCatalog: true,
   };
 }
@@ -116,13 +124,14 @@ export async function uploadVideoToS3(
 
 /**
  * Registers an uploaded video in backend catalog at POST /api/add-video
- * Payload: { video_id, title, filename, source_language }
+ * Payload: { video_id, title, filename, source_language, youtube_url? }
  */
 export async function addVideoToCatalog(payload: {
   video_id: string;
   title: string;
   filename: string;
   source_language: string;
+  youtube_url?: string;
 }): Promise<any> {
   const url = `${API_BASE.replace(/\/$/, '')}/api/add-video`;
   console.log('Posting video metadata to /api/add-video:', payload);

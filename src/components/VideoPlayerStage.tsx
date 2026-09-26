@@ -8,6 +8,7 @@ import {
 } from '../data/sampleVideos';
 import { extractYouTubeId } from '../utils/youtube';
 import { fetchCatalogVideos, submitVideoForProcessing, generateVideoUploadUrl, uploadVideoToS3, addVideoToCatalog } from '../services/videoService';
+import { processUrlWithVidKraken } from '../services/vidKrakenService';
 import { wsService } from '../services/websocketService';
 import { Play, Pause, RotateCcw, FastForward, Film, Clock, User, Bookmark, Link2, ArrowLeft, AlertCircle, Loader2, Languages, Send, Upload, CheckCircle2, X, Terminal } from 'lucide-react';
 
@@ -153,10 +154,12 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
     };
   }, [showTranscriptionModal, onSelectVideo]);
 
-  // Trigger visual highlight & seek HTML5 video when a voice jump happens
+  // Trigger visual highlight & seek video (both YouTube and HTML5) when a voice jump happens
   useEffect(() => {
     if (lastJumpSeconds !== null) {
       setShowJumpToast(true);
+
+      // 1. HTML5 Video player seek
       if (activeVideo.videoUrl && html5VideoRef.current) {
         try {
           html5VideoRef.current.currentTime = lastJumpSeconds;
@@ -165,10 +168,23 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
           console.warn('HTML5 video seek error:', e);
         }
       }
+
+      // 2. YouTube IFrame player seek & pause
+      if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+        try {
+          playerRef.current.seekTo(lastJumpSeconds, true);
+          if (typeof playerRef.current.pauseVideo === 'function') {
+            playerRef.current.pauseVideo();
+          }
+        } catch (e) {
+          console.warn('YouTube player seek error:', e);
+        }
+      }
+
       const timer = setTimeout(() => setShowJumpToast(false), 3500);
       return () => clearTimeout(timer);
     }
-  }, [lastJumpSeconds, activeVideo.videoUrl]);
+  }, [lastJumpSeconds, activeVideo.videoUrl, playerRef]);
 
   // Track playback time
   useEffect(() => {
@@ -250,62 +266,37 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
     setIsUploading(true);
 
     try {
-      // 3. API request to backend api/generate-video-upload-url with payload { filename }
-      console.log(`Generating upload URL for filename: "${filename}", videoId: "${videoId}"`);
-      const { uploadUrl } = await generateVideoUploadUrl(filename);
+      // 3. IF LOCAL FILE IS SELECTED -> Upload file to S3 via Presigned URL
+      if (selectedUploadFile) {
+        console.log(`Generating upload URL for local file: "${selectedUploadFile.name}"...`);
+        const { uploadUrl } = await generateVideoUploadUrl(filename);
+        await uploadVideoToS3(uploadUrl, selectedUploadFile);
 
-      // 4. Fetch binary video content from selectedUploadFile or customUrlInput link
-      let fileToUpload: File | Blob | null = selectedUploadFile;
+        // POST to /api/add-video without youtube_url
+        await addVideoToCatalog({
+          video_id: videoId,
+          title: filename,
+          filename: filename,
+          source_language: processingLanguage,
+        });
+      }
+      // 4. IF LINK/URL IS GIVEN -> Skip S3 presigned URL upload, post youtube_url in /api/add-video
+      else if (customUrlInput.trim()) {
+        console.log(`Link provided: "${customUrlInput.trim()}". Skipping S3 presigned URL upload...`);
 
-      if (!fileToUpload && customUrlInput.trim()) {
-        console.log(`Fetching binary video content from link: "${customUrlInput.trim()}"...`);
-        let urlRes = await fetch(customUrlInput.trim(), { redirect: 'follow' });
-
-        // Handle 303 / 301 / 302 location redirects explicitly
-        if (urlRes.status >= 300 && urlRes.status < 400 && urlRes.headers.get('location')) {
-          const redirectTarget = urlRes.headers.get('location')!;
-          console.log(`Following 303 redirect link to: "${redirectTarget}"...`);
-          urlRes = await fetch(redirectTarget, { redirect: 'follow' });
-        }
-
-        if (!urlRes.ok) {
-          throw new Error(`Could not fetch video content from link (HTTP ${urlRes.status} ${urlRes.statusText})`);
-        }
-
-        fileToUpload = await urlRes.blob();
-        console.log(`Successfully fetched video content from link! Size: ${fileToUpload.size} bytes, type: "${fileToUpload.type}"`);
+        // POST to /api/add-video WITH youtube_url
+        await addVideoToCatalog({
+          video_id: videoId,
+          title: filename,
+          filename: filename,
+          source_language: processingLanguage,
+          youtube_url: customUrlInput.trim(),
+        });
+      } else {
+        throw new Error('Please select a video file or enter a valid URL.');
       }
 
-      if (!fileToUpload || fileToUpload.size === 0) {
-        throw new Error('No valid video file content retrieved from the link. Please check the link or select a file.');
-      }
-
-      // 5. Upload actual binary video content to S3 via presigned uploadUrl
-      await uploadVideoToS3(uploadUrl, fileToUpload);
-
-      // 5. POST to /api/add-video with exact payload:
-      // {"video_id": videoId, "title": filename, "filename": filename, "source_language": processingLanguage}
-      await addVideoToCatalog({
-        video_id: videoId,
-        title: filename,
-        filename: filename,
-        source_language: processingLanguage,
-      });
-
-      // 6. Connect WebSocket & send 'transcribe' payload:
-      // { url_path: 'transcribe', video_url: filename, video_lang: processingLanguage, video_id: videoId }
-      wsService.connectWebSocket();
-      const transcribeWsPayload = {
-        url_path: 'transcribe',
-        video_file_name: filename,
-        video_lang: processingLanguage,
-        video_id: videoId,
-      };
-
-      console.log('Sending WebSocket transcribe payload:', transcribeWsPayload);
-      wsService.sendWebSocketMessage(transcribeWsPayload);
-
-      // 7. Open Real-Time Transcription Progress Modal
+      // 5. Open Real-Time Transcription Progress Modal immediately
       setTranscriptionLogs([
         {
           timestamp: new Date().toLocaleTimeString(),
@@ -314,6 +305,59 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
       ]);
       setTranscriptionStatus('transcribing');
       setShowTranscriptionModal(true);
+
+      // 6. If YouTube URL was provided, call VidKraken API and poll for job completion BEFORE WebSocket call
+      let finalYoutubeUrl: string | undefined = undefined;
+      if (!selectedUploadFile && customUrlInput.trim()) {
+        const inputUrl = customUrlInput.trim();
+        setTranscriptionLogs((prev) => [
+          ...prev,
+          {
+            timestamp: new Date().toLocaleTimeString(),
+            text: `Submitting URL to VidKraken API for download processing: ${inputUrl}`,
+          },
+        ]);
+
+        try {
+          const vidKrakenDirectUrl = await processUrlWithVidKraken(inputUrl);
+          finalYoutubeUrl = vidKrakenDirectUrl;
+          setTranscriptionLogs((prev) => [
+            ...prev,
+            {
+              timestamp: new Date().toLocaleTimeString(),
+              text: `VidKraken download job completed successfully. Direct URL: ${vidKrakenDirectUrl}`,
+            },
+          ]);
+        } catch (vidKrakenErr: any) {
+          console.error('VidKraken processing error:', vidKrakenErr);
+          setTranscriptionLogs((prev) => [
+            ...prev,
+            {
+              timestamp: new Date().toLocaleTimeString(),
+              text: `VidKraken download failed: ${vidKrakenErr?.message || 'Could not process video URL'}`,
+              isError: true,
+            },
+          ]);
+          setTranscriptionStatus('error');
+          return;
+        }
+      }
+
+      // 7. Send 'transcribe' payload via WebSocket (includes VidKraken resolved download URL)
+      const transcribeWsPayload: Record<string, any> = {
+        url_path: 'transcribe',
+        video_url: filename,
+        video_file_name: filename,
+        video_lang: processingLanguage,
+        video_id: videoId,
+      };
+
+      if (finalYoutubeUrl) {
+        transcribeWsPayload.youtube_url = finalYoutubeUrl;
+      }
+
+      console.log('Sending WebSocket transcribe payload:', transcribeWsPayload);
+      wsService.sendWebSocketMessage(transcribeWsPayload);
 
     } catch (err: any) {
       console.error('handleCustomUrlSubmit error:', err);
@@ -499,24 +543,35 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
 
             {/* 16:9 Aspect Ratio Frame */}
             <div className="relative aspect-video w-full bg-slate-950 overflow-hidden">
-              {activeVideo.videoUrl ? (
-                <video
-                  ref={html5VideoRef}
-                  key={activeVideo.id}
-                  src={activeVideo.videoUrl}
-                  controls
-                  className="w-full h-full absolute inset-0 border-0 bg-black"
-                />
-              ) : (
-                <YouTube
-                  videoId={activeVideo.youtubeId}
-                  opts={youtubeOptions}
-                  onReady={onPlayerReady}
-                  onStateChange={onPlayerStateChange}
-                  className="w-full h-full"
-                  iframeClassName="w-full h-full absolute inset-0 border-0"
-                />
-              )}
+              {(() => {
+                const resolvedYoutubeId =
+                  activeVideo.youtubeId ||
+                  (activeVideo.youtube_url ? extractYouTubeId(activeVideo.youtube_url) : null) ||
+                  (activeVideo.videoUrl ? extractYouTubeId(activeVideo.videoUrl) : null);
+
+                if (resolvedYoutubeId) {
+                  return (
+                    <YouTube
+                      videoId={resolvedYoutubeId}
+                      opts={youtubeOptions}
+                      onReady={onPlayerReady}
+                      onStateChange={onPlayerStateChange}
+                      className="w-full h-full"
+                      iframeClassName="w-full h-full absolute inset-0 border-0"
+                    />
+                  );
+                }
+
+                return (
+                  <video
+                    ref={html5VideoRef}
+                    key={activeVideo.id}
+                    src={activeVideo.videoUrl}
+                    controls
+                    className="w-full h-full absolute inset-0 border-0 bg-black"
+                  />
+                );
+              })()}
 
               {/* Jump to Timestamp Toast Notification */}
               {showJumpToast && lastJumpSeconds !== null && (
@@ -665,16 +720,16 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
           )}
 
           {/* Submit the pasted URL to the backend processing pipeline */}
-          {customUrlInput.trim() && (
-            <form
-              onSubmit={handleSubmitForProcessing}
-              className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800/70"
-            >
-              <div className="flex items-center gap-2 px-2 text-xs font-semibold text-slate-400 shrink-0">
+          {/* {customUrlInput.trim() && ( */}
+          {/* // <form
+            //   onSubmit={handleSubmitForProcessing}
+            //   className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800/70"
+            // > */}
+          {/* <div className="flex items-center gap-2 px-2 text-xs font-semibold text-slate-400 shrink-0">
                 <Languages className="w-4 h-4 text-violet-400" />
                 <span>Video language:</span>
-              </div>
-              <select
+              </div> */}
+          {/* <select
                 value={processingLanguage}
                 onChange={(e) => setProcessingLanguage(e.target.value as ProcessingLanguageCode)}
                 className="bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 font-medium cursor-pointer"
@@ -688,8 +743,8 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
                     {lang.label}
                   </option>
                 ))}
-              </select>
-              <button
+              </select> */}
+          {/* <button
                 type="submit"
                 disabled={!processingLanguage || processingState === 'pending'}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-indigo-600/30 transition-all cursor-pointer"
@@ -705,9 +760,9 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
                     <span>Submit for Transcription</span>
                   </>
                 )}
-              </button>
-            </form>
-          )}
+              </button> */}
+          {/* </form> */}
+          {/* )} */}
 
           {processingState === 'pending' && processingMessage && (
             <div className="flex items-center gap-1.5 mt-2 px-1 text-[11px] text-amber-300">
