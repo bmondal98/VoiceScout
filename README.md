@@ -1,5 +1,5 @@
 # VocalScout 🎙️
-### Interactive Multilingual Video Voice Tutor — Hackathon Prototype
+### AI-Powered Multilingual Video Intelligence — Hackathon Prototype
 
 VocalScout is a clean, high-contrast single-screen dashboard designed for hackathon stage demos. It allows users to watch educational videos (in English or French), select a target spoken language (Hindi, Marathi, Bengali, or English), and hold down a Push-to-Talk (PTT) microphone button to ask questions in their native language.
 

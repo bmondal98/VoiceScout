@@ -1011,27 +1011,26 @@ function checkLanguageMismatch(
 
   if (!detectedLangCode) {
     if (hasDevanagari) {
-      detectedLangCode = selectedLanguage === 'mr' ? 'mr' : 'hi';
-      detectedLangLabel = selectedLanguage === 'mr' ? 'Marathi' : 'Hindi';
+      detectedLangCode = 'hi';
+      detectedLangLabel = 'Hindi';
     } else if (hasBengali) {
       detectedLangCode = 'bn';
       detectedLangLabel = 'Bengali';
     } else if (hasLatin) {
-      detectedLangCode = 'en';
-      detectedLangLabel = 'English';
+      // Script alone can't tell English from French, so trust a Latin-script selection.
+      if (selectedLanguage === 'hi') {
+        detectedLangCode = 'en';
+        detectedLangLabel = 'English';
+      } else {
+        detectedLangCode = selectedLanguage;
+      }
     }
   }
 
   if (selectedLanguage === 'hi' && detectedLangCode !== 'hi' && hasLatin && !hasDevanagari) {
     return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
   }
-  if (selectedLanguage === 'mr' && detectedLangCode !== 'mr' && hasLatin && !hasDevanagari) {
-    return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
-  }
-  if (selectedLanguage === 'bn' && detectedLangCode !== 'bn' && hasLatin && !hasBengali) {
-    return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
-  }
-  if (selectedLanguage === 'en' && (hasDevanagari || hasBengali)) {
+  if (selectedLanguage !== 'hi' && (hasDevanagari || hasBengali)) {
     return { isMismatch: true, detectedLangLabel: hasDevanagari ? 'Hindi/Marathi' : 'Bengali' };
   }
 

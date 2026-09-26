@@ -1,7 +1,6 @@
 import React from 'react';
 import type { TargetLanguage } from '../types';
-import { SUPPORTED_LANGUAGES } from '../data/sampleVideos';
-import { Languages, Radio, Volume2 } from 'lucide-react';
+import { Volume2 } from 'lucide-react';
 
 interface HeaderProps {
   selectedLanguage: TargetLanguage;
@@ -44,7 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Center/Right Controls: Language Selector & Mode Toggle */}
         <div className="flex items-center gap-3">
           <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
-            AI-Powered Multilingual Video Intelligence &amp; Voice Agent
+            AI-Powered Multilingual Video Intelligence
           </p>
           {/* Target Language Dropdown Selector */}
           {/* <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-xl px-2.5 py-1.5 shadow-sm hover:border-slate-700 transition-colors">
