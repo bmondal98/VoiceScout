@@ -1,4 +1,4 @@
-import type { LanguageOption, VideoOption, AskResponse, TargetLanguage, ProcessingLanguageOption } from '../types';
+import type { LanguageOption, ProcessingLanguageOption /*, VideoOption, AskResponse, TargetLanguage */ } from '../types';
 
 export const SUPPORTED_LANGUAGES: LanguageOption[] = [
   {
@@ -39,51 +39,52 @@ export const PROCESSING_LANGUAGES: ProcessingLanguageOption[] = [
   { code: 'fil', label: 'Filipino' },
 ];
 
-export const SAMPLE_VIDEOS: VideoOption[] = [
-  {
-    id: 'vid_py_01',
-    youtubeId: 'kqtD5dpn9C8',
-    title: 'Python Memory & Loops',
-    originalLanguage: 'English (EN)',
-    instructor: 'Corey Schafer',
-    duration: '10:08',
-    description: 'Deep dive into Python variables, memory allocation, list iteration, and break/continue statements.',
-    badge: 'Video A',
-    chapters: [
-      { title: 'For Loops & Range', seconds: 45, formattedTime: '00:45' },
-      { title: 'Break & Continue in Memory', seconds: 152, formattedTime: '02:32' },
-      { title: 'Nested Loops & Efficiency', seconds: 280, formattedTime: '04:40' },
-      { title: 'While Loops & Mutability', seconds: 410, formattedTime: '06:50' },
-    ],
-    sampleQuestions: [
-      'How does break differ from continue in memory?',
-      'How does Python store loop variables in memory?',
-      'What happens when using while loops with lists?',
-    ],
-  },
-  {
-    id: 'vid_fr_02',
-    youtubeId: 'aircAruvnKk',
-    title: 'Deep Learning Fundamentals',
-    originalLanguage: 'French (FR)',
-    instructor: '3Blue1Brown (FR Dub)',
-    duration: '19:12',
-    description: 'Comprendre les réseaux de neurones, la rétropropagation du gradient et les fonctions d\'activation.',
-    badge: 'Video B',
-    chapters: [
-      { title: 'Neural Structure (Structure Neurones)', seconds: 60, formattedTime: '01:00' },
-      { title: 'Weights & Biases (Poids et Biais)', seconds: 215, formattedTime: '03:35' },
-      { title: 'Activation Functions (Fonction Sigmoïde)', seconds: 430, formattedTime: '07:10' },
-      { title: 'Cost Function & Loss (Fonction de Coût)', seconds: 650, formattedTime: '10:50' },
-    ],
-    sampleQuestions: [
-      'Comment fonctionne la fonction de coût ?',
-      'What are weights and biases in neural layers?',
-      'How does gradient descent minimize error?',
-    ],
-  },
-];
+// export const SAMPLE_VIDEOS: VideoOption[] = [
+//   {
+//     id: 'vid_py_01',
+//     youtubeId: 'kqtD5dpn9C8',
+//     title: 'Python Memory & Loops',
+//     originalLanguage: 'English (EN)',
+//     instructor: 'Corey Schafer',
+//     duration: '10:08',
+//     description: 'Deep dive into Python variables, memory allocation, list iteration, and break/continue statements.',
+//     badge: 'Video A',
+//     chapters: [
+//       { title: 'For Loops & Range', seconds: 45, formattedTime: '00:45' },
+//       { title: 'Break & Continue in Memory', seconds: 152, formattedTime: '02:32' },
+//       { title: 'Nested Loops & Efficiency', seconds: 280, formattedTime: '04:40' },
+//       { title: 'While Loops & Mutability', seconds: 410, formattedTime: '06:50' },
+//     ],
+//     sampleQuestions: [
+//       'How does break differ from continue in memory?',
+//       'How does Python store loop variables in memory?',
+//       'What happens when using while loops with lists?',
+//     ],
+//   },
+//   {
+//     id: 'vid_fr_02',
+//     youtubeId: 'aircAruvnKk',
+//     title: 'Deep Learning Fundamentals',
+//     originalLanguage: 'French (FR)',
+//     instructor: '3Blue1Brown (FR Dub)',
+//     duration: '19:12',
+//     description: 'Comprendre les réseaux de neurones, la rétropropagation du gradient et les fonctions d\'activation.',
+//     badge: 'Video B',
+//     chapters: [
+//       { title: 'Neural Structure (Structure Neurones)', seconds: 60, formattedTime: '01:00' },
+//       { title: 'Weights & Biases (Poids et Biais)', seconds: 215, formattedTime: '03:35' },
+//       { title: 'Activation Functions (Fonction Sigmoïde)', seconds: 430, formattedTime: '07:10' },
+//       { title: 'Cost Function & Loss (Fonction de Coût)', seconds: 650, formattedTime: '10:50' },
+//     ],
+//     sampleQuestions: [
+//       'Comment fonctionne la fonction de coût ?',
+//       'What are weights and biases in neural layers?',
+//       'How does gradient descent minimize error?',
+//     ],
+//   },
+// ];
 
+/*
 // Rich fallback mock answers categorized by video and target language
 export const MOCK_RESPONSES: Record<string, Record<TargetLanguage, AskResponse>> = {
   vid_py_01: {
@@ -147,3 +148,4 @@ export const MOCK_RESPONSES: Record<string, Record<TargetLanguage, AskResponse>>
     },
   },
 };
+*/

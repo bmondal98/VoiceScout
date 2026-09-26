@@ -1,17 +1,18 @@
 import { useState, useRef } from 'react';
 import type { YouTubePlayer } from 'react-youtube';
 import type { TargetLanguage, VideoOption } from './types';
-import { SAMPLE_VIDEOS } from './data/sampleVideos';
+// import { SAMPLE_VIDEOS } from './data/sampleVideos';
 import { Header } from './components/Header';
 import { VideoPlayerStage } from './components/VideoPlayerStage';
 import { VoiceAssistantPanel } from './components/VoiceAssistantPanel';
 import { Cpu, Zap, Volume2, Shield } from 'lucide-react';
 
 export default function App() {
-  const [activeVideo, setActiveVideo] = useState<VideoOption>(SAMPLE_VIDEOS[0]);
+  const [activeVideo, setActiveVideo] = useState<VideoOption>({} as VideoOption);
   const [selectedLanguage, setSelectedLanguage] = useState<TargetLanguage>('hi');
   const [lastJumpSeconds, setLastJumpSeconds] = useState<number | null>(null);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+  const [stageTab, setStageTab] = useState<'catalog' | 'url'>('catalog');
 
   // Reference to the YouTube player instance
   const playerRef = useRef<YouTubePlayer | null>(null);
@@ -43,26 +44,31 @@ export default function App() {
 
         {/* 2-Column Responsive Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Video Player Stage (7 of 12 cols on desktop) */}
-          <div className="lg:col-span-7 flex flex-col gap-4">
+          {/* Left Column: Video Player Stage (7 cols on catalog tab, 12 cols centered on url tab) */}
+          <div className={stageTab === 'catalog' ? 'lg:col-span-7 flex flex-col gap-4' : 'lg:col-span-12 max-w-4xl mx-auto w-full flex flex-col gap-4'}>
             <VideoPlayerStage
               activeVideo={activeVideo}
               onSelectVideo={handleSelectVideo}
               playerRef={playerRef}
               lastJumpSeconds={lastJumpSeconds}
+              stageTab={stageTab}
+              onTabChange={setStageTab}
             />
           </div>
 
-          {/* Right Column: AI Voice Assistant Hub & PTT Controls (5 of 12 cols) */}
-          <div className="lg:col-span-5 flex flex-col gap-4">
-            <VoiceAssistantPanel
-              activeVideo={activeVideo}
-              selectedLanguage={selectedLanguage}
-              playerRef={playerRef}
-              onVoiceJump={handleVoiceJump}
-              isDemoMode={isDemoMode}
-            />
-          </div>
+          {/* Right Column: AI Voice Assistant Hub (visible ONLY when in Catalog Player tab) */}
+          {stageTab === 'catalog' && (
+            <div className="lg:col-span-5 flex flex-col gap-4 animate-fadeIn">
+              <VoiceAssistantPanel
+                activeVideo={activeVideo}
+                selectedLanguage={selectedLanguage}
+                onSelectLanguage={setSelectedLanguage}
+                playerRef={playerRef}
+                onVoiceJump={handleVoiceJump}
+                isDemoMode={isDemoMode}
+              />
+            </div>
+          )}
         </div>
 
         {/* System Architecture & Hackathon Presentation Badges */}
@@ -111,7 +117,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="w-full border-t border-slate-900 bg-slate-950 py-3 text-center text-[11px] text-slate-500">
-        <p>VocalScout Hackathon Prototype &bull; Multilingual Interactive Video Voice Tutor &bull; Powered by React, Tailwind CSS & YouTube Player API</p>
+        <p>VocalScout Hackathon Prototype &bull; AI-Powered Multilingual Video Intelligence</p>
       </footer>
     </div>
   );

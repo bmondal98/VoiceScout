@@ -11,10 +11,10 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  selectedLanguage,
-  onSelectLanguage,
-  isDemoMode,
-  onToggleDemoMode,
+  // selectedLanguage,
+  // onSelectLanguage,
+  // isDemoMode,
+  // onToggleDemoMode,
 }) => {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-xl transition-all">
@@ -37,16 +37,17 @@ export const Header: React.FC<HeaderProps> = ({
                 v1.0 Demo
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
-              Interactive Multilingual Video Voice Tutor
-            </p>
+
           </div>
         </div>
 
         {/* Center/Right Controls: Language Selector & Mode Toggle */}
         <div className="flex items-center gap-3">
+          <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
+            AI-Powered Multilingual Video Intelligence &amp; Voice Agent
+          </p>
           {/* Target Language Dropdown Selector */}
-          <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-xl px-2.5 py-1.5 shadow-sm hover:border-slate-700 transition-colors">
+          {/* <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-xl px-2.5 py-1.5 shadow-sm hover:border-slate-700 transition-colors">
             <Languages className="w-4 h-4 text-violet-400 shrink-0" />
             <span className="text-xs font-medium text-slate-400 hidden md:inline">Target Language:</span>
             <select
@@ -61,10 +62,10 @@ export const Header: React.FC<HeaderProps> = ({
                 </option>
               ))}
             </select>
-          </div>
+          </div> */}
 
           {/* Backend Status / Demo Fallback Mode Switch */}
-          <button
+          {/* <button
             type="button"
             onClick={onToggleDemoMode}
             title={isDemoMode ? 'Running in Offline Demo Mode (Mock Engine active)' : 'Connected to live backend (http://localhost:8000)'}
@@ -79,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
               {isDemoMode ? 'Demo Mode (Stage Safe)' : 'Backend: :8000'}
             </span>
             <span className="sm:hidden">{isDemoMode ? 'Demo' : 'Live'}</span>
-          </button>
+          </button> */}
         </div>
       </div>
     </header>

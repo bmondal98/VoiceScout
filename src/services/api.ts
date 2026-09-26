@@ -1,7 +1,9 @@
 import type { AskResponse, AskTextPayload, TargetLanguage } from '../types';
-import { MOCK_RESPONSES, SUPPORTED_LANGUAGES } from '../data/sampleVideos';
+import { SUPPORTED_LANGUAGES } from '../data/sampleVideos'; /* import { MOCK_RESPONSES } from '../data/sampleVideos'; */
+import { wsService } from './websocketService';
 
 const BASE_URL = 'http://localhost:8000';
+const API_BASE_PATH = import.meta.env.VITE_BACKEND_API_BASE_PATH || BASE_URL;
 
 export class VoiceApiError extends Error {
   isNetworkError: boolean;
@@ -24,9 +26,12 @@ export async function sendVoiceQuery(
   forceMock = false
 ): Promise<AskResponse & { isMock?: boolean }> {
   if (forceMock) {
+    /*
     await simulateDelay(1400);
     const mock = getMockResponse(videoId, targetLanguage);
     return { ...mock, isMock: true };
+    */
+    throw new VoiceApiError('Mock response disabled');
   }
 
   const formData = new FormData();
@@ -62,10 +67,14 @@ export async function sendVoiceQuery(
       isMock: false,
     };
   } catch (error: any) {
+    console.error('Backend /api/ask-voice error:', error);
+    /*
     console.warn('Backend /api/ask-voice unreachable or errored. Using fail-safe demo response:', error);
     await simulateDelay(900);
     const mock = getMockResponse(videoId, targetLanguage);
     return { ...mock, isMock: true };
+    */
+    throw error instanceof VoiceApiError ? error : new VoiceApiError(error?.message || 'Backend /api/ask-voice error');
   }
 }
 
@@ -78,16 +87,33 @@ export async function sendTextQuery(
   forceMock = false
 ): Promise<AskResponse & { isMock?: boolean }> {
   if (forceMock) {
+    /*
     await simulateDelay(1200);
     const mock = getMockResponse(payload.video_id, payload.target_language, payload.query);
     return { ...mock, isMock: true };
+    */
+    throw new VoiceApiError('Mock response disabled');
   }
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+    /* Old /api/ask-text fetch call commented out per instructions:
     const response = await fetch(`${BASE_URL}/api/ask-text`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    */
+
+    const queryAgentUrl = `${API_BASE_PATH}/api/query-agent`;
+    console.log('Sending query-agent request to:', queryAgentUrl, payload);
+
+    const response = await fetch(queryAgentUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -103,27 +129,51 @@ export async function sendTextQuery(
     }
 
     const data = await response.json();
+    console.log('query-agent response:', data);
+
+    const responseMsg = typeof data === 'string' ? data : data?.message || JSON.stringify(data);
+
+    // If response message contains "chat entry created" (or OK status), send WebSocket frame
+    if (response.ok || (typeof responseMsg === 'string' && responseMsg.toLowerCase().includes('chat entry created'))) {
+      const wsPayload = {
+        url_path: 'query_agent',
+        query: payload.query,
+        video_id: payload.video_id,
+        query_id: payload.chat_id,
+        video_lang: payload.video_lang,
+        query_lang: payload.query_lang,
+      };
+
+      console.log('Sending WebSocket payload after chat entry created:', wsPayload);
+      wsService.sendWebSocketMessage(wsPayload);
+    }
+
     return {
       transcribed_query: data.transcribed_query || payload.query,
-      answer_text: data.answer_text || 'Explanation received from VocalScout AI.',
+      answer_text: data.answer_text || 'Query registered. Streaming response from AI agent...',
       target_seconds: Number(data.target_seconds) || 0,
       quote: data.quote || 'Referenced video segment',
       audio_url: data.audio_url,
-      language: data.language || payload.target_language,
+      language: data.language || (payload.query_lang as TargetLanguage) || 'en',
       isMock: false,
     };
   } catch (error: any) {
-    console.warn('Backend /api/ask-text unreachable. Using fail-safe demo response:', error);
+    console.error('Backend /api/query-agent error:', error);
+    /*
+    console.warn('Backend /api/query-agent unreachable or errored. Using fail-safe demo response:', error);
     await simulateDelay(700);
-    const mock = getMockResponse(payload.video_id, payload.target_language, payload.query);
+    const mock = getMockResponse(payload.video_id, (payload.query_lang as TargetLanguage) || 'en', payload.query);
     return { ...mock, isMock: true };
+    */
+    throw error instanceof VoiceApiError ? error : new VoiceApiError(error?.message || 'Backend /api/query-agent error');
   }
 }
 
+/*
 function getMockResponse(videoId: string, targetLanguage: TargetLanguage, customQuery?: string): AskResponse {
   const videoResponses = MOCK_RESPONSES[videoId] || MOCK_RESPONSES.vid_py_01;
   const response = videoResponses[targetLanguage] || videoResponses.en;
-  
+
   if (customQuery) {
     return {
       ...response,
@@ -132,10 +182,13 @@ function getMockResponse(videoId: string, targetLanguage: TargetLanguage, custom
   }
   return response;
 }
+*/
 
+/*
 function simulateDelay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+*/
 
 /**
  * Audio playback synthesizer:
@@ -182,7 +235,7 @@ function fallbackWebSpeech(
 ): { stop: () => void } {
   if (typeof window === 'undefined' || !window.speechSynthesis) {
     setTimeout(() => onEnd?.(), 3000);
-    return { stop: () => {} };
+    return { stop: () => { } };
   }
 
   window.speechSynthesis.cancel();

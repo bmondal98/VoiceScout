@@ -6,10 +6,14 @@ import type {
   VideoOption,
   AskResponse,
   AskTextPayload,
+  WsAgentMessage,
+  WsContextItem,
 } from '../types';
 import { SUPPORTED_LANGUAGES } from '../data/sampleVideos';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
-import { sendVoiceQuery, sendTextQuery, playSynthesizedAudio } from '../services/api';
+import { /* sendVoiceQuery, */ sendTextQuery, playSynthesizedAudio } from '../services/api';
+import { transcribeAudioWithAssemblyAI } from '../services/assemblyAI';
+import { wsService } from '../services/websocketService';
 import {
   Mic,
   Volume2,
@@ -22,31 +26,40 @@ import {
   ChevronDown,
   ChevronUp,
   Quote,
-  CheckCircle2,
-  Copy,
-  Check,
   Send,
+  WifiOff,
+  CheckCircle2,
+  /* Copy, Check, */
 } from 'lucide-react';
 
 interface VoiceAssistantPanelProps {
   activeVideo: VideoOption;
   selectedLanguage: TargetLanguage;
+  onSelectLanguage?: (lang: TargetLanguage) => void;
   playerRef: React.MutableRefObject<YouTubePlayer | null>;
   onVoiceJump: (seconds: number) => void;
   isDemoMode: boolean;
 }
 
+const LANGUAGE_OPTIONS = [
+  { title: 'English', value: 'en' },
+  { title: 'Hindi', value: 'hi' },
+];
+
 export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
   activeVideo,
   selectedLanguage,
+  onSelectLanguage,
   playerRef,
   onVoiceJump,
   isDemoMode,
 }) => {
+  // console.log(import.meta.env.VITE_ASSEMBLYAI_API_KEY)
   // Finite State Machine
   const [fsmState, setFsmState] = useState<InteractionState>('IDLE');
   const [explanation, setExplanation] = useState<AskResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [languageWarning, setLanguageWarning] = useState<string | null>(null);
 
   // Audio Playback State for Spoken Explanation
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -56,7 +69,18 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
   const [isTextDrawerOpen, setIsTextDrawerOpen] = useState(false);
   const [textQuery, setTextQuery] = useState('');
   const [isSubmittingText, setIsSubmittingText] = useState(false);
-  const [hasCopiedQuote, setHasCopiedQuote] = useState(false);
+  // const [hasCopiedQuote, setHasCopiedQuote] = useState(false);
+
+  // Live WebSocket Streaming & Agent Response State
+  const [wsStreamMessages, setWsStreamMessages] = useState<string[]>([]);
+  if (wsStreamMessages.length < 0) console.log(wsStreamMessages);
+  const [wsProgressStatus, setWsProgressStatus] = useState<string>('');
+  const [wsFinalAnswer, setWsFinalAnswer] = useState<string | null>(null);
+  const [wsContexts, setWsContexts] = useState<WsContextItem[]>([]);
+  const [isContextsOpen, setIsContextsOpen] = useState<boolean>(false); // Collapsed by default!
+  const [isExplanationExpanded, setIsExplanationExpanded] = useState<boolean>(false);
+  const [isWsStreaming, setIsWsStreaming] = useState<boolean>(false);
+  const [isWsConnected, setIsWsConnected] = useState<boolean>(true);
 
   // Voice recording hook
   const {
@@ -67,7 +91,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
 
   const activeLangConfig = SUPPORTED_LANGUAGES.find((l) => l.code === selectedLanguage);
 
-  // Reset state when the active video changes
+  /* Previous reset effect commented out per instructions:
   useEffect(() => {
     stopCurrentAudio();
     setExplanation(null);
@@ -75,11 +99,96 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
     setErrorMessage(null);
     setTextQuery('');
   }, [activeVideo.id]);
+  */
+
+  // Reset & restart WebSocket connection session on video dropdown change
+  useEffect(() => {
+    if (!activeVideo?.id) return;
+
+    stopCurrentAudio();
+    setExplanation(null);
+    setFsmState('IDLE');
+    setErrorMessage(null);
+    setTextQuery('');
+    setWsStreamMessages([]);
+    setWsProgressStatus('');
+    setWsFinalAnswer(null);
+    setWsContexts([]);
+    setIsContextsOpen(false);
+    setIsWsStreaming(false);
+
+    // 1. Close existing WebSocket session
+    wsService.closeWebSocket();
+
+    // 2. Start a fresh new WebSocket session for the selected video
+    wsService.connectWebSocket();
+    setIsWsConnected(true);
+
+    // 3. Subscribe to incoming WebSocket messages
+    const unsubscribe = wsService.subscribeWebSocketMessages((rawData) => {
+      console.log('Incoming WebSocket data:', rawData);
+      let parsed: WsAgentMessage | null = null;
+
+      if (typeof rawData === 'object' && rawData !== null) {
+        parsed = rawData as WsAgentMessage;
+      } else if (typeof rawData === 'string') {
+        try {
+          parsed = JSON.parse(rawData);
+        } catch {
+          setWsProgressStatus(rawData);
+          return;
+        }
+      }
+
+      if (!parsed) return;
+
+      // 1. Single-line progress status message while data is null
+      if (parsed.status && !parsed.data) {
+        setWsProgressStatus(parsed.status);
+        setIsWsStreaming(true);
+      }
+
+      // 2. Final message when data contains final answer and contexts
+      if (parsed.data && parsed.data.answer) {
+        setWsProgressStatus('');
+        setIsWsStreaming(false);
+        setWsFinalAnswer(parsed.data.answer);
+        setFsmState('IDLE');
+        stopCurrentAudio();
+
+        if (parsed.data.context && Array.isArray(parsed.data.context)) {
+          setWsContexts(parsed.data.context);
+        }
+
+        // Auto-seek YouTube player to start_sec of first context item if available
+        const firstContext = parsed.data.context?.[0];
+        const startSec = Number(firstContext?.metadata?.start_sec) || 0;
+        if (startSec > 0 && playerRef.current && typeof playerRef.current.seekTo === 'function') {
+          try {
+            playerRef.current.seekTo(startSec, true);
+            playerRef.current.pauseVideo();
+            onVoiceJump(startSec);
+          } catch (err) {
+            console.warn('Could not seek player from WS context:', err);
+          }
+        }
+
+        // Auto play aloud disabled per instructions — user clicks Play Aloud button manually
+        // playSpokenAnswer(parsed.data.answer);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      wsService.closeWebSocket();
+    };
+  }, [activeVideo.id]);
 
   // Clean up audio playback on unmount
   useEffect(() => {
     return () => {
       stopCurrentAudio();
+      wsService.closeWebSocket();
     };
   }, []);
 
@@ -92,18 +201,35 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
       }
       audioControllerRef.current = null;
     }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {
+        // ignore
+      }
+    }
     setIsAudioPlaying(false);
+  };
+
+  const resetPreviousQueryState = () => {
+    stopCurrentAudio();
+    setExplanation(null);
+    setWsFinalAnswer(null);
+    setWsContexts([]);
+    setWsProgressStatus('');
+    setWsStreamMessages([]);
+    setIsContextsOpen(false);
+    setIsExplanationExpanded(false);
+    setErrorMessage(null);
+    setLanguageWarning(null);
   };
 
   // 1. PUSH-TO-TALK: Start Listening (Mouse Down / Touch Start)
   const handleMicPressStart = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (activeVideo.isCustom) return;
-    if (fsmState === 'THINKING' || fsmState === 'SPEAKING') {
-      stopCurrentAudio();
-    }
 
-    setErrorMessage(null);
+    resetPreviousQueryState();
 
     // Step 1: Automatically pause the YouTube video
     if (playerRef.current && typeof playerRef.current.pauseVideo === 'function') {
@@ -133,24 +259,65 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
 
     try {
       const audioBlob = await stopRecording();
-      if (!audioBlob || audioBlob.size < 200) {
-        setErrorMessage('Voice input was too brief. Please hold down the button while speaking.');
+      if (!audioBlob || audioBlob.size < 2000) {
+        setErrorMessage('Voice input was too brief. Please hold down the microphone button while speaking.');
         setFsmState('ERROR');
         return;
       }
 
-      // Step 2 & 3: Send audio to backend
+      /* Previous direct audio backend query commented out per instructions:
       const response = await sendVoiceQuery(
         audioBlob,
         activeVideo.id,
         selectedLanguage,
         isDemoMode
       );
+      handleProcessSuccess(response);
+      */
+
+      // Detect text and spoken language from recorded audio Blob using AssemblyAI
+      const transcribeResult = await transcribeAudioWithAssemblyAI(audioBlob);
+      const transcribedText = transcribeResult.text;
+
+      console.log('Transcribed Text:', transcribedText, 'AssemblyAI Language:', transcribeResult.language_code);
+      if (!transcribedText || !transcribedText.trim()) {
+        setErrorMessage('AssemblyAI could not detect any spoken text from your audio.');
+        setFsmState('ERROR');
+        return;
+      }
+
+      // Check for mismatch between selected target language and spoken language / script
+      const mismatch = checkLanguageMismatch(selectedLanguage, transcribedText, transcribeResult.language_code);
+      if (mismatch.isMismatch) {
+        const selectedLangLabel = SUPPORTED_LANGUAGES.find((l) => l.code === selectedLanguage)?.label || selectedLanguage;
+        setLanguageWarning(
+          `You selected ${selectedLangLabel} (${selectedLanguage}), but your spoken audio was detected as ${mismatch.detectedLangLabel}. Query blocked: Please speak in ${selectedLangLabel} or change the target language.`
+        );
+        setFsmState('IDLE');
+        return; // Halt: Do not call /api/query-agent or send WebSocket frame on mismatch!
+      } else {
+        setLanguageWarning(null);
+      }
+
+      // Send AssemblyAI detected text query to backend video tutor (/api/query-agent)
+      const payload: AskTextPayload = {
+        chat_id: `${Math.floor(Date.now() / 1000)}`,
+        query: transcribedText,
+        query_lang: selectedLanguage,
+        video_id: activeVideo.id,
+        video_lang: activeVideo.originalLanguage,
+      };
+
+      resetPreviousQueryState();
+      setIsWsStreaming(true);
+
+      const response = await sendTextQuery(payload, isDemoMode);
+      response.transcribed_query = transcribedText;
 
       handleProcessSuccess(response);
     } catch (err: any) {
-      console.error('Ask voice error:', err);
-      setErrorMessage(err.message || 'Error communicating with voice tutor service.');
+      console.error('AssemblyAI / Ask voice error:', err);
+      setErrorMessage(err.message || 'Error transcribing audio with AssemblyAI.');
       setFsmState('ERROR');
     }
   };
@@ -158,7 +325,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
   // 3. Process AskResponse: Sync Video + Play Audio Aloud
   const handleProcessSuccess = (response: AskResponse) => {
     setExplanation(response);
-    setFsmState('SPEAKING');
+    setFsmState('IDLE');
 
     // Automatically seek the YouTube player to the exact target seconds
     if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
@@ -171,8 +338,8 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
       }
     }
 
-    // Play synthesized regional spoken explanation aloud
-    playSpokenAnswer(response.answer_text, response.audio_url);
+    // Auto play aloud disabled per instructions — user clicks Play Aloud button manually
+    // playSpokenAnswer(response.answer_text, response.audio_url);
   };
 
   const playSpokenAnswer = (answerText: string, audioUrl?: string) => {
@@ -192,13 +359,13 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
     audioControllerRef.current = controller;
   };
 
-  const toggleAudioPlayback = () => {
+  const toggleAudioPlayback = (textToPlay: string, audioUrl?: string) => {
     if (isAudioPlaying) {
       stopCurrentAudio();
       setFsmState('IDLE');
-    } else if (explanation) {
+    } else if (textToPlay) {
       setFsmState('SPEAKING');
-      playSpokenAnswer(explanation.answer_text, explanation.audio_url);
+      playSpokenAnswer(textToPlay, audioUrl);
     }
   };
 
@@ -207,10 +374,20 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
     if (e) e.preventDefault();
     if (!textQuery.trim() || isSubmittingText) return;
 
+    resetPreviousQueryState();
     setIsSubmittingText(true);
     setFsmState('THINKING');
-    setErrorMessage(null);
-    stopCurrentAudio();
+
+    const mismatch = checkLanguageMismatch(selectedLanguage, textQuery.trim());
+    if (mismatch.isMismatch) {
+      const selectedLangLabel = SUPPORTED_LANGUAGES.find((l) => l.code === selectedLanguage)?.label || selectedLanguage;
+      setLanguageWarning(
+        `You selected ${selectedLangLabel} (${selectedLanguage}), but your typed query was detected as ${mismatch.detectedLangLabel}. Query blocked: Please write in ${selectedLangLabel} or change the target language.`
+      );
+      setFsmState('IDLE');
+      setIsSubmittingText(false);
+      return;
+    }
 
     if (playerRef.current && typeof playerRef.current.pauseVideo === 'function') {
       try {
@@ -224,7 +401,10 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
       const payload: AskTextPayload = {
         video_id: activeVideo.id,
         query: textQuery.trim(),
+        query_lang: selectedLanguage,
         target_language: selectedLanguage,
+        chat_id: `chat_${Date.now()}`,
+        video_lang: activeVideo.originalLanguage || 'en',
       };
 
       const response = await sendTextQuery(payload, isDemoMode);
@@ -246,11 +426,13 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  /*
   const handleCopyQuote = (quote: string) => {
     navigator.clipboard.writeText(quote);
     setHasCopiedQuote(true);
     setTimeout(() => setHasCopiedQuote(false), 2000);
   };
+  */
 
   return (
     <div className="flex flex-col gap-4">
@@ -270,34 +452,71 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
             </div>
           </div>
 
-          {/* Explicit FSM Status Badge */}
-          <div
-            className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border shadow-sm transition-all ${
-              fsmState === 'IDLE'
+          {/* Extreme Right Controls: Manual WS Toggle, Language Dropdown & FSM Status Badge */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Manual WebSocket Connection Control */}
+            <button
+              type="button"
+              onClick={() => {
+                if (isWsConnected) {
+                  wsService.closeWebSocket();
+                  setIsWsConnected(false);
+                } else {
+                  wsService.connectWebSocket();
+                  setIsWsConnected(true);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${isWsConnected
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-rose-500/20 hover:border-rose-500/40 hover:text-rose-300'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                }`}
+              title={isWsConnected ? 'Click to manually close WebSocket connection' : 'Click to reconnect WebSocket'}
+            >
+              <WifiOff className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden xs:inline">{isWsConnected ? 'Disconnect WS' : 'Connect WS'}</span>
+              <span className="xs:hidden">{isWsConnected ? 'WS' : 'No WS'}</span>
+            </button>
+
+            <select
+              value={selectedLanguage}
+              onChange={(e) => onSelectLanguage?.(e.target.value as TargetLanguage)}
+              className="bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-1 text-xs font-semibold text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 cursor-pointer"
+              aria-label="Target Spoken Language"
+            >
+              {LANGUAGE_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value} className="bg-slate-900 text-white">
+                  {item.title}
+                </option>
+              ))}
+            </select>
+
+            {/* Explicit FSM Status Badge */}
+            <div
+              className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border shadow-sm transition-all ${fsmState === 'IDLE'
                 ? 'bg-slate-800/80 border-slate-700 text-slate-300'
                 : fsmState === 'LISTENING'
-                ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 ring-2 ring-rose-500/30 animate-pulse'
-                : fsmState === 'THINKING'
-                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                : fsmState === 'SPEAKING'
-                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 ring-2 ring-emerald-500/30'
-                : 'bg-rose-600/30 border-rose-600 text-rose-200'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                fsmState === 'IDLE'
+                  ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 ring-2 ring-rose-500/30 animate-pulse'
+                  : fsmState === 'THINKING'
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                    : fsmState === 'SPEAKING'
+                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 ring-2 ring-emerald-500/30'
+                      : 'bg-rose-600/30 border-rose-600 text-rose-200'
+                }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${fsmState === 'IDLE'
                   ? 'bg-slate-400'
                   : fsmState === 'LISTENING'
-                  ? 'bg-rose-400 animate-ping'
-                  : fsmState === 'THINKING'
-                  ? 'bg-amber-400 animate-spin'
-                  : fsmState === 'SPEAKING'
-                  ? 'bg-emerald-400 animate-pulse'
-                  : 'bg-rose-500'
-              }`}
-            />
-            <span>{fsmState}</span>
+                    ? 'bg-rose-400 animate-ping'
+                    : fsmState === 'THINKING'
+                      ? 'bg-amber-400 animate-spin'
+                      : fsmState === 'SPEAKING'
+                        ? 'bg-emerald-400 animate-pulse'
+                        : 'bg-rose-500'
+                  }`}
+              />
+              <span>{fsmState}</span>
+            </div>
           </div>
         </div>
 
@@ -329,17 +548,16 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
               onTouchStart={handleMicPressStart}
               onTouchEnd={handleMicPressEnd}
               disabled={fsmState === 'THINKING' || activeVideo.isCustom}
-              className={`relative z-10 w-24 h-24 rounded-full flex flex-col items-center justify-center transition-all duration-200 shadow-2xl select-none focus:outline-none ${
-                activeVideo.isCustom
-                  ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-60'
-                  : fsmState === 'LISTENING'
+              className={`relative z-10 w-24 h-24 rounded-full flex flex-col items-center justify-center transition-all duration-200 shadow-2xl select-none focus:outline-none ${activeVideo.isCustom
+                ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-60'
+                : fsmState === 'LISTENING'
                   ? 'bg-gradient-to-tr from-rose-600 to-red-500 text-white scale-110 shadow-rose-600/50 ring-4 ring-rose-400 cursor-pointer'
                   : fsmState === 'THINKING'
-                  ? 'bg-slate-800 text-amber-300 border border-amber-500/40 cursor-wait'
-                  : fsmState === 'SPEAKING'
-                  ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-emerald-600/40 ring-2 ring-emerald-400 cursor-pointer'
-                  : 'bg-gradient-to-tr from-violet-600 via-indigo-600 to-indigo-700 hover:from-violet-500 hover:to-indigo-500 text-white shadow-indigo-700/40 hover:scale-105 active:scale-95 ring-2 ring-violet-400/30 cursor-pointer'
-              }`}
+                    ? 'bg-slate-800 text-amber-300 border border-amber-500/40 cursor-wait'
+                    : fsmState === 'SPEAKING'
+                      ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-emerald-600/40 ring-2 ring-emerald-400 cursor-pointer'
+                      : 'bg-gradient-to-tr from-violet-600 via-indigo-600 to-indigo-700 hover:from-violet-500 hover:to-indigo-500 text-white shadow-indigo-700/40 hover:scale-105 active:scale-95 ring-2 ring-violet-400/30 cursor-pointer'
+                }`}
               title={activeVideo.isCustom ? 'Voice Q&A unavailable for pasted videos' : 'Hold to talk in your native language'}
               aria-label="Push to talk microphone button"
             >
@@ -435,6 +653,25 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
           </div>
         )}
 
+        {/* Language Mismatch Warning Banner */}
+        {languageWarning && (
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs shadow-md animate-fadeIn">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+            <div className="flex-1">
+              <p className="font-bold text-amber-300">Language Mismatch Alert</p>
+              <p className="text-[11px] text-amber-200/90 mt-0.5 leading-relaxed">
+                {languageWarning}
+              </p>
+            </div>
+            <button
+              onClick={() => setLanguageWarning(null)}
+              className="text-amber-400 hover:text-white text-xs font-bold underline cursor-pointer shrink-0"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Shimmer Skeleton during THINKING state */}
         {fsmState === 'THINKING' && (
           <div className="p-4 rounded-2xl bg-slate-950/80 border border-amber-500/30 flex flex-col gap-3 shadow-lg animate-pulse">
@@ -450,7 +687,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
 
         {/* 3. EXPLANATION CARD (When in SPEAKING or IDLE with previous result) */}
         {explanation && fsmState !== 'THINKING' && (
-          <div className="p-4 rounded-2xl bg-slate-950/90 border border-violet-500/30 shadow-xl flex flex-col gap-3.5 relative group">
+          <div className="p-4 rounded-2xl bg-slate-950/90 border border-violet-500/30 shadow-xl flex flex-col gap-3.5 relative group min-h-[200px] max-h-[480px] overflow-y-auto custom-scrollbar">
             {/* Query Header Pill */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex flex-col">
@@ -463,7 +700,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
               </div>
 
               {/* Direct Jump Button to Target Seconds */}
-              <button
+              {/* <button
                 type="button"
                 onClick={() => {
                   if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
@@ -477,10 +714,10 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
               >
                 <FastForward className="w-3.5 h-3.5 text-cyan-300" />
                 <span>Jump to {formatSeconds(explanation.target_seconds)}</span>
-              </button>
+              </button> */}
             </div>
 
-            {/* Verbatim Video Quote Callout */}
+            {/* Verbatim Video Quote Callout commented out per instructions:
             <div className="relative p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-1.5 text-violet-400 font-bold text-[11px]">
@@ -504,39 +741,150 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
                 {explanation.quote}
               </p>
             </div>
+            */}
 
-            {/* Synthesized Spoken Answer Box */}
-            <div className="p-3.5 rounded-xl bg-gradient-to-r from-violet-950/40 via-indigo-950/40 to-slate-900 border border-violet-500/20 text-xs">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  Regional Explanation ({activeLangConfig?.label}):
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={toggleAudioPlayback}
-                    className="flex items-center gap-1 text-[11px] font-bold text-violet-300 hover:text-white px-2 py-0.5 rounded bg-violet-600/30 border border-violet-500/30 cursor-pointer"
-                  >
-                    {isAudioPlaying ? (
-                      <>
-                        <Pause className="w-3 h-3 text-rose-400" />
-                        <span>Pause</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-3 h-3 text-emerald-400" />
-                        <span>Play Aloud</span>
-                      </>
-                    )}
-                  </button>
+            {/* Single-Line Agent Progress Status with WhatsApp-Style 3 Bouncing Dots */}
+            {isWsStreaming && wsProgressStatus && (
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300">
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="w-2 h-2 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <span className="w-2 h-2 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <span className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" />
                 </div>
+                <span className="font-semibold text-violet-300 truncate">{wsProgressStatus}</span>
               </div>
+            )}
 
-              <p className="text-slate-200 leading-relaxed font-medium">
-                {explanation.answer_text}
-              </p>
-            </div>
+            {/* Synthesized Spoken Answer / WebSocket Final Answer Box */}
+            {(wsFinalAnswer || explanation) && (() => {
+              const fullText = wsFinalAnswer || explanation?.answer_text || '';
+              const needsTruncation = fullText.length > 30;
+              const displayText = !needsTruncation
+                ? fullText
+                : isExplanationExpanded
+                ? fullText
+                : fullText.slice(0, 30);
+
+              return (
+                <div className="p-3.5 rounded-xl bg-gradient-to-r from-violet-950/40 via-indigo-950/40 to-slate-900 border border-violet-500/20 text-xs flex flex-col gap-2 shrink-0">
+                  <div className="flex items-center justify-between mb-0.5 shrink-0">
+                    <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      Agent Explanation ({activeLangConfig?.label}):
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          toggleAudioPlayback(fullText, explanation?.audio_url);
+                        }}
+                        className="flex items-center gap-1.5 text-xs font-bold text-violet-200 hover:text-white px-2.5 py-1 rounded-lg bg-violet-600/40 hover:bg-violet-600/60 border border-violet-500/40 shadow-sm transition-all cursor-pointer"
+                      >
+                        {isAudioPlaying ? (
+                          <>
+                            <Pause className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
+                            <span className="text-rose-300">Pause</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
+                            <span className="text-emerald-300">Play Aloud</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-52 overflow-y-auto pr-1.5 text-slate-200 leading-relaxed font-medium whitespace-pre-line custom-scrollbar">
+                    {displayText}
+                    {needsTruncation && !isExplanationExpanded && (
+                      <button
+                        type="button"
+                        onClick={() => setIsExplanationExpanded(true)}
+                        className="ml-1 text-[11px] font-bold text-violet-400 hover:text-violet-300 underline cursor-pointer inline-flex items-center"
+                      >
+                        .....View More
+                      </button>
+                    )}
+                    {needsTruncation && isExplanationExpanded && (
+                      <button
+                        type="button"
+                        onClick={() => setIsExplanationExpanded(false)}
+                        className="ml-1.5 text-[11px] font-bold text-violet-400 hover:text-violet-300 underline cursor-pointer inline-flex items-center"
+                      >
+                        .....View Less
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Collapsible Contexts Section (Collapsed by Default) */}
+            {wsContexts.length > 0 && (
+              <div className="rounded-xl bg-slate-900/80 border border-slate-800 overflow-hidden text-xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsContextsOpen(!isContextsOpen)}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-900/90 hover:bg-slate-800/80 text-slate-300 font-semibold transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 text-violet-400">
+                    <Quote className="w-3.5 h-3.5" />
+                    <span>Referenced Video Contexts ({wsContexts.length})</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                    <span>{isContextsOpen ? 'Hide' : 'Show'} Contexts</span>
+                    {isContextsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
+                </button>
+
+                {/* Collapsed Container */}
+                {isContextsOpen && (
+                  <div className="p-3.5 border-t border-slate-800/80 flex flex-col gap-3 bg-slate-950/70 min-h-[120px] max-h-[220px] overflow-y-auto custom-scrollbar">
+                    {wsContexts.map((item, idx) => {
+                      const startSec = item.metadata?.start_sec !== undefined
+                        ? Number(item.metadata.start_sec)
+                        : item.metadata?.start_ms !== undefined
+                          ? Number(item.metadata.start_ms) / 1000
+                          : 0;
+
+                      return (
+                        <div key={item.id || idx} className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 text-xs">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] font-mono font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">
+                              Segment at {formatSeconds(startSec)}
+                            </span>
+                            {!isNaN(startSec) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onVoiceJump(startSec);
+                                  if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+                                    try {
+                                      playerRef.current.seekTo(startSec, true);
+                                      playerRef.current.playVideo();
+                                    } catch (err) {
+                                      console.warn('Could not seek YouTube player:', err);
+                                    }
+                                  }
+                                }}
+                                className="flex items-center gap-1 text-[10px] text-violet-300 hover:text-white font-semibold cursor-pointer"
+                              >
+                                <FastForward className="w-3 h-3 text-cyan-300" />
+                                <span>Jump to segment</span>
+                              </button>
+                            )}
+                          </div>
+                          <p className="italic text-slate-300 leading-relaxed font-sans">
+                            "{item.page_content}"
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -585,7 +933,7 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
                   Quick Stage Test Prompts:
                 </span>
                 <div className="flex flex-wrap gap-1.5">
-                  {activeVideo.sampleQuestions.map((q, idx) => (
+                  {activeVideo?.sampleQuestions?.map((q: string, idx: number) => (
                     <button
                       key={idx}
                       type="button"
@@ -606,3 +954,74 @@ export const VoiceAssistantPanel: React.FC<VoiceAssistantPanelProps> = ({
     </div>
   );
 };
+
+function checkLanguageMismatch(
+  selectedLanguage: TargetLanguage,
+  transcribedText: string,
+  assemblyAiLangCode?: string
+): { isMismatch: boolean; detectedLangLabel: string } {
+  const text = transcribedText.trim();
+  if (!text) return { isMismatch: false, detectedLangLabel: '' };
+
+  const hasDevanagari = /[\u0900-\u097F]/.test(text);
+  const hasBengali = /[\u0980-\u09FF]/.test(text);
+  const hasLatin = /[a-zA-Z]/.test(text);
+
+  let detectedLangCode = '';
+  let detectedLangLabel = '';
+
+  if (assemblyAiLangCode) {
+    const code = assemblyAiLangCode.toLowerCase();
+    if (code.startsWith('en')) {
+      detectedLangCode = 'en';
+      detectedLangLabel = 'English';
+    } else if (code.startsWith('hi')) {
+      detectedLangCode = 'hi';
+      detectedLangLabel = 'Hindi';
+    } else if (code.startsWith('mr')) {
+      detectedLangCode = 'mr';
+      detectedLangLabel = 'Marathi';
+    } else if (code.startsWith('bn')) {
+      detectedLangCode = 'bn';
+      detectedLangLabel = 'Bengali';
+    } else if (code.startsWith('fr')) {
+      detectedLangCode = 'fr';
+      detectedLangLabel = 'French';
+    } else if (code.startsWith('es')) {
+      detectedLangCode = 'es';
+      detectedLangLabel = 'Spanish';
+    }
+  }
+
+  if (!detectedLangCode) {
+    if (hasDevanagari) {
+      detectedLangCode = selectedLanguage === 'mr' ? 'mr' : 'hi';
+      detectedLangLabel = selectedLanguage === 'mr' ? 'Marathi' : 'Hindi';
+    } else if (hasBengali) {
+      detectedLangCode = 'bn';
+      detectedLangLabel = 'Bengali';
+    } else if (hasLatin) {
+      detectedLangCode = 'en';
+      detectedLangLabel = 'English';
+    }
+  }
+
+  if (selectedLanguage === 'hi' && detectedLangCode !== 'hi' && hasLatin && !hasDevanagari) {
+    return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
+  }
+  if (selectedLanguage === 'mr' && detectedLangCode !== 'mr' && hasLatin && !hasDevanagari) {
+    return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
+  }
+  if (selectedLanguage === 'bn' && detectedLangCode !== 'bn' && hasLatin && !hasBengali) {
+    return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
+  }
+  if (selectedLanguage === 'en' && (hasDevanagari || hasBengali)) {
+    return { isMismatch: true, detectedLangLabel: hasDevanagari ? 'Hindi/Marathi' : 'Bengali' };
+  }
+
+  if (detectedLangCode && detectedLangCode !== selectedLanguage) {
+    return { isMismatch: true, detectedLangLabel: detectedLangLabel || detectedLangCode };
+  }
+
+  return { isMismatch: false, detectedLangLabel: '' };
+}
