@@ -1,7 +1,7 @@
 import boto3
 
 s3 = boto3.client("s3")
-BUCKET_NAME = "vocalscoutvideos"
+BUCKET_NAME = "your-bucket-name"
 
 def lambda_handler(event, context):
     filename = event["queryStringParameters"]["filename"]

@@ -1011,8 +1011,8 @@ function checkLanguageMismatch(
 
   if (!detectedLangCode) {
     if (hasDevanagari) {
-      detectedLangCode = 'hi';
-      detectedLangLabel = 'Hindi';
+      detectedLangCode = selectedLanguage === 'mr' ? 'mr' : 'hi';
+      detectedLangLabel = selectedLanguage === 'mr' ? 'Marathi' : 'Hindi';
     } else if (hasBengali) {
       detectedLangCode = 'bn';
       detectedLangLabel = 'Bengali';
@@ -1023,6 +1023,12 @@ function checkLanguageMismatch(
   }
 
   if (selectedLanguage === 'hi' && detectedLangCode !== 'hi' && hasLatin && !hasDevanagari) {
+    return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
+  }
+  if (selectedLanguage === 'mr' && detectedLangCode !== 'mr' && hasLatin && !hasDevanagari) {
+    return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
+  }
+  if (selectedLanguage === 'bn' && detectedLangCode !== 'bn' && hasLatin && !hasBengali) {
     return { isMismatch: true, detectedLangLabel: detectedLangLabel || 'English' };
   }
   if (selectedLanguage === 'en' && (hasDevanagari || hasBengali)) {

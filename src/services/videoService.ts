@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { CatalogVideo, ProcessingLanguageCode, VideoOption, VideoProcessingResult } from '../types';
 
-const API_BASE = import.meta.env.VITE_BACKEND_API_BASE_PATH || 'https://1cui283870.execute-api.us-east-1.amazonaws.com/dev';
+const API_BASE = import.meta.env.VITE_BACKEND_API_BASE_PATH;
 const CATALOG_URL = `${API_BASE.replace(/\/$/, '')}/api/get-video`;
 export const ADD_VIDEO_URL = `${API_BASE.replace(/\/$/, '')}/api/add-video`;
 

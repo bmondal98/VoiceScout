@@ -2,9 +2,9 @@ import boto3
 import json
 
 dynamodb = boto3.resource("dynamodb")
-table = dynamodb.Table("Videos")
+table = dynamodb.Table("your-videos-table")
 s3 = boto3.client("s3")
-BUCKET_NAME = "vocalscoutvideos"
+BUCKET_NAME = "your-bucket-name"
 
 def lambda_handler(event, context):
     response = table.scan()

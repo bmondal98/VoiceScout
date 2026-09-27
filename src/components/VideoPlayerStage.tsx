@@ -7,10 +7,10 @@ import {
   PROCESSING_LANGUAGES
 } from '../data/sampleVideos';
 import { extractYouTubeId } from '../utils/youtube';
-import { fetchCatalogVideos,generateVideoUploadUrl, uploadVideoToS3, addVideoToCatalog } from '../services/videoService';
+import { fetchCatalogVideos, submitVideoForProcessing, generateVideoUploadUrl, uploadVideoToS3, addVideoToCatalog } from '../services/videoService';
 import { processUrlWithVidKraken } from '../services/vidKrakenService';
 import { wsService } from '../services/websocketService';
-import { Play, Pause, RotateCcw, FastForward, Film, Clock, User, Link2, ArrowLeft, AlertCircle, Loader2, Languages, Upload, CheckCircle2, X, Terminal } from 'lucide-react';
+import { Play, Pause, RotateCcw, FastForward, Film, Clock, User, Bookmark, Link2, ArrowLeft, AlertCircle, Loader2, Languages, Send, Upload, CheckCircle2, X, Terminal } from 'lucide-react';
 
 interface VideoPlayerStageProps {
   activeVideo: VideoOption;
@@ -364,6 +364,29 @@ export const VideoPlayerStage: React.FC<VideoPlayerStageProps> = ({
       setCustomUrlError(err?.message || 'Failed to upload video or register with backend.');
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleSubmitForProcessing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const videoId = extractYouTubeId(customUrlInput);
+    if (!videoId) {
+      setCustomUrlError('Could not recognize that as a valid YouTube URL.');
+      return;
+    }
+    if (!processingLanguage) return;
+
+    setProcessingState('pending');
+    setProcessingMessage(null);
+
+    try {
+      const result = await submitVideoForProcessing(customUrlInput.trim(), processingLanguage);
+      setProcessingMessage(result.message);
+      setProcessingState(result.status === 'pending' ? 'pending' : 'idle');
+    } catch (err) {
+      console.warn('submitVideoForProcessing failed:', err);
+      setProcessingState('error');
+      setProcessingMessage('Could not submit video for processing. Please try again.');
     }
   };
 

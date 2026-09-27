@@ -2,7 +2,7 @@ import boto3
 import json
 
 dynamodb = boto3.resource("dynamodb")
-table = dynamodb.Table("Videos")  # table name your TL will create
+table = dynamodb.Table("your-videos-table")  # table name your TL will create
 
 def lambda_handler(event, context):
     body = json.loads(event["body"])

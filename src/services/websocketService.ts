@@ -14,8 +14,7 @@ class WebSocketService {
   private getWebSocketUrl(): string {
     const url =
       import.meta.env.VITE_BACKEND_WEBSOCKET_PATH ||
-      import.meta.env.VITE_WEBSOCKET_PATH ||
-      'wss://1kaidzgva0.execute-api.us-east-1.amazonaws.com/prod';
+      import.meta.env.VITE_WEBSOCKET_PATH;
     return url;
   }
 
